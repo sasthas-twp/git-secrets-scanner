@@ -13,7 +13,7 @@ template:
           identifier: build_stage
           template:
             templateRef: build_stage
-            versionLabel: "1.0.0"
+            versionLabel: "1.0.1-stable"
 
       # Test Stage
       - stage:
