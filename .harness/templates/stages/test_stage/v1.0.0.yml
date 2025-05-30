@@ -1,0 +1,45 @@
+template:
+  name: "Unit Tests"
+  identifier: test_stage
+  versionLabel: "1.0.0"
+  type: Stage
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  spec:
+    type: CI
+    spec:
+      cloneCodebase: true
+      platform:
+        os: Linux
+        arch: Amd64
+      execution:
+        steps:
+          - step:
+              type: Run
+              name: "Run Unit Tests"
+              identifier: run_unit_tests
+              spec:
+                shell: Sh
+                command: |
+                  echo "Running unit tests..."
+                  mvn test
+                envVariables:
+                  TEST_ENV: ci
+      reports:
+        type: JUnit
+        spec:
+          paths:
+            - "**/target/surefire-reports/*.xml"
+            - "**/target/failsafe-reports/*.xml"
+      caching:
+        enabled: true
+        paths:
+          - "/root/.m2"
+          - "/root/.gradle"
+      failureStrategies:
+        - onFailure:
+            errors:
+              - AllErrors
+            action:
+              type: MarkAsFailure
+              spec: {}

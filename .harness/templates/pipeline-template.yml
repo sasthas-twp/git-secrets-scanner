@@ -1,0 +1,120 @@
+template:
+  name: "Base Pipeline Template"
+  identifier: base_pipeline_template
+  versionLabel: "1.0.0"
+  type: Pipeline
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  spec:
+    stages:
+      # Build Stage
+      - stage:
+          name: Build
+          identifier: build_stage
+          template:
+            templateRef: build_stage
+            versionLabel: "1.0.0"
+
+      # Test Stage
+      - stage:
+          name: Unit Tests
+          identifier: test_stage
+          template:
+            templateRef: test_stage
+            versionLabel: "1.0.0"
+
+      # Code Quality Stage
+      - stage:
+          name: Code Quality
+          identifier: code_quality_stage
+          template:
+            templateRef: code_quality_check
+            versionLabel: "1.0.0"
+
+      # Dependency Scan Stage
+      - stage:
+          name: Dependency Scan
+          identifier: security_scan_stage
+          template:
+            templateRef: security_scan_stage
+            versionLabel: "1.0.0"
+
+      # Build and Push Image Stage
+      - stage:
+          name: Build and Push Image
+          identifier: build_push_stage
+          template:
+            templateRef: build_push_stage
+            versionLabel: "1.0.0"
+
+      # Container Security Scan Stage
+      - stage:
+          name: Container Security Scan
+          identifier: container_security_scan_stage
+          template:
+            templateRef: container_security_scan
+            versionLabel: "1.0.0"
+
+      # Image Signing Stage
+      - stage:
+          name: Sign Container Image
+          identifier: image_signing_stage
+          template:
+            templateRef: container_image_signing
+            versionLabel: "1.0.0"
+
+      # Dev Deployment Stage
+      - stage:
+          name: Deploy to Dev
+          identifier: deploy_dev_stage
+          template:
+            templateRef: deploy_stage
+            versionLabel: "1.0.0"
+            templateInputs:
+              env: ${env.dev}
+
+      # PreProd Deployment Stage
+      - stage:
+          name: Deploy to PreProd
+          identifier: deploy_preprod_stage
+          template:
+            templateRef: deploy_stage
+            versionLabel: "1.0.0"
+            templateInputs:
+              env: ${env.preprod}
+
+      # PreProd Approval Stage
+      - stage:
+          name: PreProd Approval
+          identifier: preprod_approval_stage
+          template:
+            templateRef: approval_stage
+            versionLabel: "1.0.0"
+            templateInputs:
+              env: ${env.preprod}
+
+      # Production Deployment Stage
+      - stage:
+          name: Deploy to Production
+          identifier: deploy_prod_stage
+          when:
+            stageStatus: Success
+            condition: <+pipeline.stages.preprod_approval_stage.status> == "Success"
+          template:
+            templateRef: deploy_stage
+            versionLabel: "1.0.0"
+            templateInputs:
+              env: ${env.prod}
+
+      # Production Approval Stage
+      - stage:
+          name: Production Approval
+          identifier: prod_approval_stage
+          when:
+            stageStatus: Success
+            condition: <+pipeline.stages.deploy_prod_stage.status> == "Succeeded"
+          template:
+            templateRef: approval_stage
+            versionLabel: "1.0.0"
+            templateInputs:
+              env: ${env.prod}

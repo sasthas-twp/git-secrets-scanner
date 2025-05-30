@@ -1,0 +1,49 @@
+template:
+  name: "Build and Push Container"
+  identifier: build_push_stage
+  versionLabel: "1.0.0"
+  type: Stage
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  spec:
+    type: CI
+    spec:
+      cloneCodebase: true
+      platform:
+        os: Linux
+        arch: Amd64
+      execution:
+        steps:
+          - step:
+              type: BuildAndPushDockerRegistry
+              name: "Build and Push Image"
+              identifier: build_and_push
+              spec:
+                connectorRef: ${serviceConfig.image.connectorRef}
+                repo: ${serviceConfig.image.repository}
+                tags: ${serviceConfig.image.tags}
+                dockerfile: ${serviceConfig.image.dockerfile}
+                context: ${serviceConfig.image.context}
+                target: ${serviceConfig.image.target}
+                labels:
+                  project: ${serviceConfig.name}
+                  version: ${version}
+                  git_commit: <+codebase.gitUserEmail>
+                  build_timestamp: <+pipeline.startTime>
+                resources:
+                  limits:
+                    memory: 2Gi
+                    cpu: 2000m
+      caching:
+        enabled: true
+        paths:
+          - "/root/.m2"
+          - "/root/.gradle"
+          - "/root/.cache"
+      failureStrategies:
+        - onFailure:
+            errors:
+              - AllErrors
+            action:
+              type: MarkAsFailure
+              spec: {}

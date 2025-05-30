@@ -1,0 +1,71 @@
+template:
+  name: "Container Image Signing"
+  identifier: container_image_signing
+  versionLabel: "1.0.0"
+  type: Stage
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  spec:
+    type: CI
+    spec:
+      cloneCodebase: true
+      platform:
+        os: Linux
+        arch: Amd64
+      execution:
+        steps:
+          - step:
+              type: Plugin
+              name: "Sign Container Image"
+              identifier: sign_container_image
+              spec:
+                connectorRef: ${serviceConfig.signing.connectorRef}
+                image: cosign/cosign:v2.0.0
+                privileged: true
+                settings:
+                  command: sign
+                  args: |
+                    -key
+                    cosign.key
+                    -a
+                    "project=${serviceConfig.name}"
+                    -a
+                    "version=${version}"
+                    ${serviceConfig.image.registry}/${serviceConfig.image.name}:${version}
+                  envVariables:
+                    COSIGN_PASSWORD: ${secrets.getValue("cosign-password")}
+                    COSIGN_PRIVATE_KEY: ${secrets.getValue("cosign-private-key")}
+                resources:
+                  limits:
+                    memory: "512Mi"
+                    cpu: "500m"
+          - step:
+              type: Plugin
+              name: "Verify Image Signature"
+              identifier: verify_image_signature
+              spec:
+                connectorRef: ${serviceConfig.signing.connectorRef}
+                image: cosign/cosign:v2.0.0
+                settings:
+                  command: verify
+                  args: |
+                    --key
+                    cosign.pub
+                    ${serviceConfig.image.registry}/${serviceConfig.image.name}:${version}
+                  envVariables:
+                    COSIGN_PUBLIC_KEY: ${secrets.getValue("cosign-public-key")}
+                resources:
+                  limits:
+                    memory: "512Mi"
+                    cpu: "500m"
+      caching:
+        enabled: true
+        paths:
+          - "/root/.cache"
+      failureStrategies:
+        - onFailure:
+            errors:
+              - AllErrors
+            action:
+              type: MarkAsFailure
+              spec: {}

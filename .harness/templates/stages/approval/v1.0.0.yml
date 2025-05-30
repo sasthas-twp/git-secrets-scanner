@@ -1,0 +1,44 @@
+template:
+  name: "${env.name} Approval"
+  identifier: ${env.id}_approval
+  versionLabel: "1.0.0"
+  type: Stage
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  spec:
+    type: Approval
+    spec:
+      execution:
+        steps:
+          - step:
+              type: HarnessApproval
+              name: "Approve ${env.name} Deployment"
+              identifier: approve_${env.id}_deployment
+              spec:
+                approvalMessage: |
+                  Please review the following information and approve the deployment to ${env.name}:
+                  
+                  - Application: ${serviceConfig.name}
+                  - Version: ${version}
+                  - Environment: ${env.name}
+                  
+                  Changes in this deployment:
+                  <+pipeline.stages.BUILD.spec.execution.steps.BUILD_APPLICATION.output.outputVariables.CHANGES>
+                includePipelineExecutionHistory: true
+                approvers:
+                  userGroups: ${env.approval.userGroups}
+                  minimumCount: ${env.approval.minimumCount}
+                  disallowPipelineExecutor: false
+                approverInputs: []
+      failureStrategies:
+        - onFailure:
+            errors:
+              - AllErrors
+            action:
+              type: ManualIntervention
+              spec:
+                timeout: ${env.approval.timeout}
+                onTimeout:
+                  action:
+                    type: Abort
+                    spec: {}

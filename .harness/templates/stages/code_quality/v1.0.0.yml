@@ -1,0 +1,60 @@
+template:
+  name: "Code Quality Check"
+  identifier: code_quality_check
+  versionLabel: "1.0.0"
+  type: Stage
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  spec:
+    type: CI
+    spec:
+      cloneCodebase: true
+      platform:
+        os: Linux
+        arch: Amd64
+      execution:
+        steps:
+          - step:
+              type: Run
+              name: "Run Code Quality Checks"
+              identifier: run_code_quality_checks
+              spec:
+                shell: Sh
+                command: |
+                  echo "Running code quality checks..."
+                  # Install required tools (e.g., sonar-scanner, pylint, etc.)
+                  pip install -r requirements-dev.txt
+                  
+                  # Run code quality tools
+                  echo "Running pylint..."
+                  pylint --rcfile=.pylintrc ./ || true
+                  
+                  echo "Running bandit..."
+                  bandit -r . -f json -o bandit-report.json || true
+                  
+                  echo "Running sonar-scanner..."
+                  sonar-scanner \
+                    -Dsonar.projectKey=${serviceConfig.name} \
+                    -Dsonar.sources=. \
+                    -Dsonar.host.url=${env.SONAR_HOST_URL} \
+                    -Dsonar.login=${env.SONAR_TOKEN}
+                envVariables:
+                  SONAR_HOST_URL: ${env.SONAR_HOST_URL}
+                  SONAR_TOKEN: ${env.SONAR_TOKEN}
+      caching:
+        enabled: true
+        paths:
+          - "~/.cache/pip"
+      failureStrategies:
+        - onFailure:
+            errors:
+              - AllErrors
+            action:
+              type: Ignore
+              spec: {}
+      reports:
+        type: JUnit
+        spec:
+          paths:
+            - "**/test-results/**/*.xml"
+            - "**/surefire-reports/**/*.xml"

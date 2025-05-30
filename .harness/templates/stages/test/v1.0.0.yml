@@ -1,0 +1,44 @@
+template:
+  name: "Test Stage"
+  identifier: test_stage
+  versionLabel: "1.0.0"
+  type: Stage
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  spec:
+    type: CI
+    spec:
+      cloneCodebase: true
+      platform:
+        os: Linux
+        arch: Amd64
+      execution:
+        steps:
+          - step:
+              type: Run
+              name: "Run Unit Tests"
+              identifier: run_unit_tests
+              spec:
+                shell: Sh
+                command: |
+                  echo "Running tests for version ${version}"
+                  mvn test
+                envVariables:
+                  VERSION: ${version}
+      cacheIntelligence:
+        enabled: true
+        paths:
+          - "**/target/surefire-reports"
+          - "**/target/failsafe-reports"
+          - "**/target/test-results"
+      reportPaths:
+        - "**/target/surefire-reports/*.xml"
+        - "**/target/failsafe-reports/*.xml"
+        - "**/target/test-results/**/*.xml"
+      failureStrategies:
+        - onFailure:
+            errors:
+              - AllErrors
+            action:
+              type: MarkAsFailure
+              spec: {}

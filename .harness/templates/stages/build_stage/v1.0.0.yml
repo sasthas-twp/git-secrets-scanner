@@ -1,0 +1,40 @@
+template:
+  name: "Build"
+  identifier: build_stage
+  versionLabel: "1.0.0"
+  type: Stage
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  spec:
+    type: CI
+    spec:
+      cloneCodebase: true
+      platform:
+        os: Linux
+        arch: Amd64
+      execution:
+        steps:
+          - step:
+              type: Run
+              name: "Build Application"
+              identifier: build_application
+              spec:
+                shell: Sh
+                command: |
+                  echo "Building application version ${version}"
+                  # Add your build commands here
+                  mvn clean package -Dversion=${version}
+                envVariables:
+                  VERSION: ${version}
+      caching:
+        enabled: true
+        paths:
+          - "/root/.m2"
+          - "/root/.gradle"
+      failureStrategies:
+        - onFailure:
+            errors:
+              - AllErrors
+            action:
+              type: MarkAsFailure
+              spec: {}

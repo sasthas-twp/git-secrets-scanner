@@ -1,0 +1,62 @@
+template:
+  name: "Deploy Stage"
+  identifier: deploy_stage
+  versionLabel: "1.0.0"
+  type: Stage
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  spec:
+    type: Deployment
+    spec:
+      deploymentType: Kubernetes
+      service:
+        serviceRef: ${serviceConfig.serviceRef}
+        serviceInputs:
+          serviceDefinition:
+            type: Kubernetes
+            spec:
+              manifests:
+                - manifest:
+                    identifier: "k8s-manifest"
+                    type: K8sManifest
+                    spec:
+                      store:
+                        type: Git
+                        spec:
+                          repoName: ${serviceConfig.repoName}
+                          connectorRef: ${serviceConfig.connectorRef}
+                          gitFetchType: Branch
+                          paths:
+                            - ${serviceConfig.manifestPath}
+                          branch: ${serviceConfig.branch}
+      environment:
+        environmentRef: ${env.environmentRef}
+        deployToAll: false
+        environmentInputs: {}
+        infrastructureDefinitions:
+          - identifier: ${env.infrastructureKey}
+            inputs:
+              identifier: ${env.infrastructureKey}
+              type: KubernetesDirect
+              spec:
+                connectorRef: ${env.connectorRef}
+                namespace: ${env.namespace}
+                releaseName: ${serviceConfig.releaseName}
+      execution:
+        steps:
+          - step:
+              type: K8sRollingDeploy
+              name: "Deploy to ${env.name}"
+              identifier: deployTo${env.name}
+              spec:
+                skipDryRun: false
+                pruningEnabled: true
+                timeout: 10m
+      tags: {}
+      failureStrategies:
+        - onFailure:
+            errors:
+              - AllErrors
+            action:
+              type: StageRollback
+              spec: {}

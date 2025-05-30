@@ -1,0 +1,51 @@
+template:
+  name: "Dependency Scan"
+  identifier: security_scan_stage
+  versionLabel: "1.0.0"
+  type: Stage
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  spec:
+    type: Security
+    spec:
+      execution:
+        steps:
+          - step:
+              type: Security
+              name: "Dependency Check"
+              identifier: dependency_check
+              spec:
+                privileged: true
+                settings:
+                  policy_type: "orchestratedScan"
+                  scan_type: "repository"
+                  product_name: "owasp"
+                  product_config_name: "default"
+                  target:
+                    name: ${serviceConfig.name}
+                    type: "repository"
+                    variant: ${serviceConfig.variant}
+                  advanced:
+                    log:
+                      level: "debug"
+                imagePullPolicy: Always
+                resources:
+                  limits:
+                    memory: "2048Mi"
+                    cpu: "1000m"
+      failureStrategies:
+        - onFailure:
+            errors:
+              - AllErrors
+            action:
+              type: ManualIntervention
+              spec:
+                timeout: 1h
+                onTimeout:
+                  action:
+                    type: MarkAsFailure
+                    spec: {}
+      outputVariables:
+        - name: SCAN_RESULTS
+          value: <+execution.steps.dependency_check.output.outputVariables.SCAN_RESULTS>
+          type: String

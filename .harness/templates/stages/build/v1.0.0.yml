@@ -1,0 +1,38 @@
+template:
+  name: "Build Stage"
+  identifier: build_stage
+  versionLabel: "1.0.0"
+  type: Stage
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  spec:
+    type: CI
+    spec:
+      cloneCodebase: true
+      platform:
+        os: Linux
+        arch: Amd64
+      execution:
+        steps:
+          - step:
+              type: Run
+              name: "Build Application"
+              identifier: build_application
+              spec:
+                shell: Sh
+                command: |
+                  echo "Building version ${version}"
+                  mvn clean package -Dversion=${version}
+                envVariables:
+                  VERSION: ${version}
+      cacheIntelligence:
+        enabled: true
+        paths:
+          - "**/target/*.jar"
+          - "**/target/classes/**"
+          - "**/node_modules/**"
+          - "**/.gradle/**"
+          - "**/.m2/**"
+      reportPaths:
+        - "**/target/surefire-reports/*.xml"
+        - "**/target/failsafe-reports/*.xml"

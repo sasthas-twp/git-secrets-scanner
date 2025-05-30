@@ -1,0 +1,113 @@
+include:
+  - project: 'my-org/ci-templates'
+    ref: main
+    file: '/templates/default.yml'
+  - project: 'my-org/ci-templates'
+    ref: main
+    file: '/templates/build.yml'
+  - project: 'my-org/ci-templates'
+    ref: main
+    file: '/templates/test.yml'
+  - project: 'my-org/ci-templates'
+    ref: main
+    file: '/templates/deploy.yml'
+
+variables:
+  # Global variables
+  DOCKER_IMAGE: $CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG-$CI_COMMIT_SHORT_SHA
+  KUBE_NAMESPACE: ${CI_PROJECT_NAMESPACE}-${CI_ENVIRONMENT_SLUG}
+
+stages:
+  - validate
+  - build
+  - test
+  - security-scan
+  - deploy
+  - cleanup
+
+# Include job templates
+.validate_template: &validate_template
+  extends: .validate
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+.build_template: &build_template
+  extends: .build
+  needs: ["validate"]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+.test_template: &test_template
+  extends: .test
+  needs: ["build"]
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+.security_scan_template: &security_scan_template
+  extends: .security_scan
+  needs: ["test"]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+.deploy_template: &deploy_template
+  extends: .deploy
+  needs: ["security-scan"]
+  environment:
+    name: ${CI_ENVIRONMENT_NAME:-staging}
+    url: https://${CI_ENVIRONMENT_SLUG}.example.com
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: false
+
+# Job definitions
+validate:
+  <<: *validate_template
+
+build:
+  <<: *build_template
+  variables:
+    DOCKER_BUILD_ARGS: --build-arg VERSION=$CI_COMMIT_SHORT_SHA
+
+test:
+  <<: *test_template
+  script:
+    - echo "Running tests..."
+    - python -m pytest tests/
+
+security-scan:
+  <<: *security_scan_template
+  script:
+    - echo "Running security scans..."
+    - bandit -r . -f json -o bandit-report.json
+
+# Deployment environments
+staging:
+  <<: *deploy_template
+  environment:
+    name: staging
+    url: https://staging.example.com
+  only:
+    refs:
+      - main
+
+production:
+  <<: *deploy_template
+  environment:
+    name: production
+    url: https://example.com
+  when: manual
+  only:
+    refs:
+      - tags
+
+# Cleanup jobs
+cleanup:
+  stage: cleanup
+  script:
+    - echo "Cleaning up..."
+    - docker system prune -f
+  when: on_success

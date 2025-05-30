@@ -1,0 +1,295 @@
+# Main pipeline configuration
+pipeline:
+  name: Git Secrets Scanner Pipeline
+  identifier: git_secrets_scanner_pipeline
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  tags: {}
+  stages:
+    # Build Stage
+    - stage:
+        name: Build
+        identifier: build
+        template:
+          templateRef: build_stage
+          versionLabel: "1.0.0"
+          templateInputs:
+            spec:
+              execution:
+                steps:
+                  - step:
+                      identifier: build_application
+                      spec:
+                        command: |
+                          echo "Building version ${version}"
+                          mvn clean package -Dversion=${version}
+
+    # Test Stage
+    - stage:
+        name: Unit Tests
+        identifier: unit_tests
+        template:
+          templateRef: test_stage
+          versionLabel: "1.0.0"
+          templateInputs:
+            spec:
+              execution:
+                steps:
+                  - step:
+                      identifier: run_unit_tests
+                      spec:
+                        command: |
+                          echo "Running tests for version ${version}"
+                          mvn test
+
+    # Code Quality Stage
+    - stage:
+        name: Code Quality
+        identifier: code_quality
+        template:
+          templateRef: code_quality_check
+          versionLabel: "1.0.0"
+          templateInputs:
+            spec:
+              execution:
+                steps:
+                  - step:
+                      identifier: run_code_quality_checks
+                      spec:
+                        envVariables:
+                          SONAR_HOST_URL: ${env.SONAR_HOST_URL}
+                          SONAR_TOKEN: ${env.SONAR_TOKEN}
+
+    # Security Scan Stage
+    - stage:
+        name: Dependency Scan
+        identifier: security_scan
+        template:
+          templateRef: security_scan_stage
+          versionLabel: "1.0.0"
+          templateInputs:
+            spec:
+              execution:
+                steps:
+                  - step:
+                      identifier: dependency_check
+                      spec:
+                        settings:
+                          target:
+                            name: ${serviceConfig.name}
+                            type: "repository"
+                            variant: ${serviceConfig.variant}
+
+    # Container Image Build and Push
+    - stage:
+        name: Build and Push Image
+        identifier: build_push_image
+        template:
+          templateRef: build_push_stage
+          versionLabel: "1.0.0"
+          templateInputs:
+            spec:
+              execution:
+                steps:
+                  - step:
+                      identifier: build_and_push
+                      spec:
+                        tags:
+                          - ${serviceConfig.image.name}:${version}
+                          - ${serviceConfig.image.name}:latest
+
+    # Container Security Scan
+    - stage:
+        name: Container Security Scan
+        identifier: container_security_scan
+        template:
+          templateRef: container_security_scan
+          versionLabel: "1.0.0"
+          templateInputs:
+            spec:
+              execution:
+                steps:
+                  - step:
+                      identifier: aqua_security_scan
+                      spec:
+                        settings:
+                          container:
+                            image: ${serviceConfig.image.name}
+                            tag: ${version}
+                            domain: ${serviceConfig.image.registry}
+                          target:
+                            name: ${serviceConfig.name}
+                            type: "container"
+                            variant: ${serviceConfig.variant}
+
+    # Container Image Signing
+    - stage:
+        name: Sign Container Image
+        identifier: sign_container_image
+        when:
+          stageStatus: Success
+          condition: <+pipeline.stages.container_security_scan.status> == "Success"
+        template:
+          templateRef: container_image_signing
+          versionLabel: "1.0.0"
+          templateInputs:
+            spec:
+              execution:
+                steps:
+                  - step:
+                      identifier: sign_container_image
+                      spec:
+                        settings:
+                          args: |
+                            -key
+                            cosign.key
+                            -a
+                            "project=${serviceConfig.name}"
+                            -a
+                            "version=${version}"
+                            ${serviceConfig.image.registry}/${serviceConfig.image.name}:${version}
+
+    # Deploy to Dev Environment (No approval required)
+    - stage:
+        name: Deploy to Dev
+        identifier: deploy_dev
+        template:
+          templateRef: deploy_stage
+          versionLabel: "1.0.0"
+          templateInputs:
+            spec:
+              environment:
+                environmentRef: ${env.dev.environmentRef}
+                infrastructureDefinitions:
+                  - identifier: ${env.dev.infrastructureKey}
+                    inputs:
+                      spec:
+                        connectorRef: ${env.dev.connectorRef}
+                        namespace: ${env.dev.namespace}
+                        releaseName: ${serviceConfig.releaseName}
+
+    # Deploy to PreProd Environment
+    - stage:
+        name: Deploy to PreProd
+        identifier: deploy_preprod
+        template:
+          templateRef: deploy_stage
+          versionLabel: "1.0.0"
+          templateInputs:
+            spec:
+              environment:
+                environmentRef: ${env.preprod.environmentRef}
+                infrastructureDefinitions:
+                  - identifier: ${env.preprod.infrastructureKey}
+                    inputs:
+                      spec:
+                        connectorRef: ${env.preprod.connectorRef}
+                        namespace: ${env.preprod.namespace}
+                        releaseName: ${serviceConfig.releaseName}
+
+    # Approval Stage for PreProd
+    - stage:
+        name: PreProd Approval
+        identifier: preprod_approval
+        template:
+          templateRef: approval_stage
+          versionLabel: "1.0.0"
+          templateInputs:
+            env: ${env.preprod}
+
+    # Deploy to Production Environment
+    - stage:
+        name: Deploy to Production
+        identifier: deploy_prod
+        when:
+          stageStatus: Success
+          condition: <+pipeline.stages.preprod_approval.status> == "Success"
+        template:
+          templateRef: deploy_stage
+          versionLabel: "1.0.0"
+          templateInputs:
+            spec:
+              environment:
+                environmentRef: ${env.prod.environmentRef}
+                infrastructureDefinitions:
+                  - identifier: ${env.prod.infrastructureKey}
+                    inputs:
+                      spec:
+                        connectorRef: ${env.prod.connectorRef}
+                        namespace: ${env.prod.namespace}
+                        releaseName: ${serviceConfig.releaseName}
+
+    # Approval Stage for Production
+    - stage:
+        name: Production Approval
+        identifier: prod_approval
+        when:
+          stageStatus: Success
+          condition: <+pipeline.stages.deploy_prod.status> == "Succeeded"
+        template:
+          templateRef: approval_stage
+          versionLabel: "1.0.0"
+          templateInputs:
+            env: ${env.prod}
+
+# Pipeline inputs
+inputs:
+  projectIdentifier: your_project_id
+  orgIdentifier: your_org_id
+  version: "1.0.0"
+  serviceConfig:
+    name: git-secrets-scanner
+    serviceRef: your_service_ref
+    repoName: your-git-repo
+    connectorRef: your_git_connector
+    branch: main
+    manifestPath: manifests/
+    releaseName: git-secrets-scanner
+    variant: default
+  env:
+    dev:
+      name: Dev
+      environmentRef: dev_env
+      infrastructureKey: dev_infra
+      connectorRef: dev_k8s_connector
+      namespace: dev-namespace
+    preprod:
+      name: PreProd
+      environmentRef: preprod_env
+      infrastructureKey: preprod_infra
+      connectorRef: preprod_k8s_connector
+      namespace: preprod-namespace
+      approval:
+        userGroups: ["qa_team", "dev_team"]
+        minimumCount: 1
+        timeout: 4h
+    prod:
+      name: Prod
+      environmentRef: prod_env
+      infrastructureKey: prod_infra
+      connectorRef: prod_k8s_connector
+      namespace: prod-namespace
+      approval:
+        userGroups: ["release_managers", "security_team"]
+        minimumCount: 2
+        timeout: 24h
+
+# Pipeline parameters that can be overridden at runtime
+parameters:
+  - name: version
+    type: String
+    description: Application version to deploy
+    required: true
+    default: "1.0.0"
+  
+  - name: environment
+    type: String
+    description: Target environment (dev, staging, prod)
+    required: true
+    default: "dev"
+    allowedValues: ["dev", "staging", "prod"]
+  
+  - name: skipTests
+    type: boolean
+    description: Skip test execution
+    default: false
