@@ -1,0 +1,151 @@
+template:
+  name: "Code Quality Check"
+  identifier: code_quality_check
+  versionLabel: "1.1.0"
+  type: Stage
+  projectIdentifier: ${projectIdentifier}
+  orgIdentifier: ${orgIdentifier}
+  spec:
+    type: CI
+    spec:
+      cloneCodebase: true
+      platform:
+        os: Linux
+        arch: Amd64
+      execution:
+        steps:
+          - step:
+              type: Run
+              name: "Setup and Run Code Quality Checks"
+              identifier: setup_and_run_quality_checks
+              spec:
+                shell: Sh
+                command: |
+                  # Install required tools
+                  echo "Installing required tools..."
+                  pip install -r requirements-dev.txt pylint bandit sonar-scanner
+                  
+                  # Create quality gate status file
+                  echo "Creating quality gate status file..."
+                  mkdir -p target/sonar
+                  
+                  # Run code quality tools with quality gate check
+                  echo "Running code quality checks..."
+                  
+                  # Run pylint with quality threshold check
+                  echo "Running pylint..."
+                  pylint --rcfile=.pylintrc --exit-zero --output-format=json . > pylint-report.json || true
+                  
+                  # Calculate pylint score (converting to 0-100 scale) and validate against threshold
+                  PY_SCORE=$(python3 -c "import json, sys; \
+                  try: \
+                      with open('pylint-report.json') as f: \
+                          data = json.load(f) \
+                          if not isinstance(data, list): \
+                              print('0', file=sys.stderr) \
+                              sys.exit(1) \
+                          errors = sum(1 for r in data if r.get('type') == 'error') \
+                          total = len([r for r in data if r.get('type') in ['convention', 'error']]) \
+                          score = 10.0 - (errors / total if total > 0 else 0) \
+                          score = max(0, min(10, score)) * 10 \
+                          print(round(score, 2)) \
+                  except Exception as e: \
+                      print(f'Error calculating pylint score: {e}', file=sys.stderr) \
+                      print('0') \
+                      sys.exit(1)" 2> pylint-score-error.log)
+                  
+                  # Validate pylint score against threshold
+                  MIN_SCORE=${env.MINIMUM_QUALITY_GATE:-85}
+                  if (( $(echo "$PY_SCORE < $MIN_SCORE" | bc -l) )); then
+                    echo "ERROR: Pylint score $PY_SCORE is below minimum threshold of $MIN_SCORE"
+                    exit 1
+                  fi
+                  
+                  # Run bandit and validate findings
+                  echo "Running bandit..."
+                  bandit -r . -f json -o bandit-report.json
+                  
+                  # Check bandit report for high severity issues
+                  if [ -f "bandit-report.json" ]; then
+                    BANDIT_ISSUES=$(jq '.results | length' bandit-report.json)
+                    if [ "$BANDIT_ISSUES" -gt 0 ]; then
+                      echo "ERROR: Found $BANDIT_ISSUES security issues in bandit report"
+                      jq '.results[] | "\(.filename):\(.line_number) - \(.issue_text) (Confidence: \(.issue_confidence), Severity: \(.issue_severity))"' bandit-report.json
+                      exit 1
+                    fi
+                  else
+                    echo "ERROR: Failed to generate bandit report"
+                    exit 1
+                  fi
+                  
+                  # Run sonar-scanner with quality gate
+                  echo "Running sonar-scanner with quality gate..."
+                  sonar-scanner \
+                    -Dsonar.projectKey=${serviceConfig.name} \
+                    -Dsonar.sources=. \
+                    -Dsonar.host.url=${env.SONAR_HOST_URL} \
+                    -Dsonar.login=${env.SONAR_TOKEN} \
+                    -Dsonar.qualitygate.wait=true \
+                    -Dsonar.qualitygate.timeout=300 \
+                    -Dsonar.qualitygate.minimumQualityGate=${env.MINIMUM_QUALITY_GATE:-85} \
+                    -Dsonar.qualitygate.conditions=pylint:${PY_SCORE}>=85,bandit:0=0
+                  
+                  # Verify quality gate status with detailed error reporting
+                  if [ -f ".scannerwork/report-task.txt" ]; then
+                    CE_TASK_URL=$(grep '^ceTaskUrl=' .scannerwork/report-task.txt | cut -d'=' -f2-)
+                    CE_TASK_RESULT=$(curl -s -u "${env.SONAR_TOKEN}:" "${CE_TASK_URL}")
+                    CE_STATUS=$(echo "$CE_TASK_RESULT" | jq -r '.task.status')
+                    
+                    if [ "$CE_STATUS" != "SUCCESS" ]; then
+                      echo "ERROR: Quality gate failed with status: $CE_STATUS"
+                      # Get quality gate details if available
+                      if [ -n "$(echo "$CE_TASK_RESULT" | jq -r '.task.analysisId' 2>/dev/null)" ]; then
+                        ANALYSIS_ID=$(echo "$CE_TASK_RESULT" | jq -r '.task.analysisId')
+                        PROJECT_KEY=$(echo "$CE_TASK_RESULT" | jq -r '.task.componentKey')
+                        QUALITY_GATE_URL="${env.SONAR_HOST_URL}/api/qualitygates/project_status?analysisId=${ANALYSIS_ID}"
+                        curl -s -u "${env.SONAR_TOKEN}:" "$QUALITY_GATE_URL" | jq '.projectStatus.conditions[] | select(.status != "OK") | "Quality Gate Failed - \(.metricKey): \(.actualValue) (threshold: \(.errorThreshold))"'
+                      fi
+                      exit 1
+                    fi
+                  else
+                    echo "ERROR: Failed to generate SonarQube report task file"
+                    exit 1
+                  fi
+                  
+                  # Final validation to ensure all quality checks passed
+                  echo "All quality checks passed successfully with score: $PY_SCORE/100"
+                envVariables:
+                  SONAR_HOST_URL: ${env.SONAR_HOST_URL}
+                  SONAR_TOKEN: ${env.SONAR_TOKEN}
+                  MINIMUM_QUALITY_GATE: "85"
+      caching:
+        enabled: true
+        paths:
+          - "~/.cache/pip"
+          - "~/.sonar/cache"
+      failureStrategies:
+        - onFailure:
+            errors:
+              - AllErrors
+            action:
+              type: MarkAsFailure
+              spec: {}
+      reports:
+        type: JUnit
+        spec:
+          paths:
+            - "**/test-results/**/*.xml"
+            - "**/surefire-reports/**/*.xml"
+            - "**/target/sonar/*.xml"
+      infrastructure:
+        spec:
+          os: Linux
+          arch: Amd64
+          spec:
+            connectorRef: account.harnessImage
+            limits:
+              memory: 2Gi
+              cpu: 1000m
+    when:
+      stageStatus: Success
+      condition: <+codebase.build.type> == "PR" || <+codebase.build.type> == "PUSH"
